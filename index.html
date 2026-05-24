@@ -78,12 +78,17 @@ var state = {
   members: loadCache("members") || [],
   tasks: loadCache("tasks") || DEFAULT_TASKS.slice(),
   logs: loadCache("logs") || [],
+  recurring: loadCache("recurring") || [],
   selectedMember: null,
   statsRange: "week",
   newMemberName: "",
   newTaskName: "",
   newTaskIcon: "✨",
   newTaskPoints: 2,
+  newRecurringName: "",
+  newRecurringIcon: "🔁",
+  newRecurringPoints: 3,
+  newRecurringInterval: 7,
   joinCode: "",
   groupName: "",
   errorMsg: "",
@@ -145,6 +150,11 @@ function subscribeGroup(gid) {
       saveCache("logs", state.logs);
       render();
     }, function(e){console.error(e);}));
+    unsubscribers.push(fs.onSnapshot(fs.collection(db,"groups",gid,"recurring"), function(snap){
+      state.recurring = snap.docs.map(function(d){return Object.assign({id:d.id},d.data());});
+      saveCache("recurring", state.recurring);
+      render();
+    }, function(e){console.error(e);}));
   } catch(e){console.error(e);}
   render();
 }
@@ -187,8 +197,8 @@ function leaveGroup() {
   if (!confirm("このグループから退出しますか？")) return;
   unsubscribers.forEach(function(u){u();}); unsubscribers=[];
   groupId=null;
-  ["groupId","members","tasks","logs"].forEach(function(k){localStorage.removeItem("chores_"+k);});
-  state.members=[]; state.tasks=DEFAULT_TASKS.slice(); state.logs=[];
+  ["groupId","members","tasks","logs","recurring"].forEach(function(k){localStorage.removeItem("chores_"+k);});
+  state.members=[]; state.tasks=DEFAULT_TASKS.slice(); state.logs=[]; state.recurring=[];
   state.groupScreen="welcome"; state.screen="home";
   render();
 }
@@ -238,6 +248,81 @@ function clearLogs(){
   var fs=window._fs;
   Promise.all(state.logs.map(function(l){return fs.deleteDoc(fs.doc(db,"groups",groupId,"logs",l.id));}))
   .then(function(){showToast("削除しました");}).catch(function(){});
+}
+
+// ── 定期タスク ──
+function addRecurring(){
+  var n=state.newRecurringName.trim();
+  if(!n||!db)return;
+  var fs=window._fs;
+  var nowMs=Date.now();
+  fs.setDoc(fs.doc(db,"groups",groupId,"recurring",nowMs.toString()),{
+    name:n,
+    icon:state.newRecurringIcon||"🔁",
+    points:state.newRecurringPoints,
+    intervalDays:state.newRecurringInterval,
+    nextDueMs:nowMs,
+    createdAt:nowMs
+  }).then(function(){
+    state.newRecurringName=""; state.newRecurringIcon="🔁";
+    state.newRecurringPoints=3; state.newRecurringInterval=7;
+    showToast("追加しました");
+  }).catch(function(){showToast("失敗しました");});
+}
+
+function deleteRecurring(id){
+  if(!db)return; var fs=window._fs;
+  fs.deleteDoc(fs.doc(db,"groups",groupId,"recurring",id)).catch(function(){});
+}
+
+function completeRecurring(r){
+  if(!state.selectedMember){showToast("メンバーを選んでね！");return;}
+  if(!db)return;
+  var fs=window._fs;
+  var nowMs=Date.now();
+  var nextDue=nowMs+(r.intervalDays*24*60*60*1000);
+  // 貢献ログに記録
+  fs.setDoc(fs.doc(db,"groups",groupId,"logs",nowMs.toString()),{
+    memberId:state.selectedMember,
+    taskId:"r_"+r.id,
+    taskName:r.name,
+    taskIcon:r.icon,
+    points:r.points,
+    date:getTodayKey(),
+    ts:fs.serverTimestamp()
+  });
+  // 次回期日を更新
+  fs.setDoc(fs.doc(db,"groups",groupId,"recurring",r.id),Object.assign({},r,{
+    nextDueMs:nextDue,
+    lastCompletedMs:nowMs,
+    lastCompletedBy:state.selectedMember
+  }),{merge:true}).then(function(){
+    showToast(r.icon+" "+r.name+" を完了！次回: "+formatInterval(r.intervalDays)+"後");
+  });
+}
+
+function formatInterval(days){
+  if(days===1)return "明日";
+  if(days===7)return "1週間";
+  if(days===14)return "2週間";
+  if(days===30)return "1ヶ月";
+  if(days===90)return "3ヶ月";
+  if(days===180)return "半年";
+  if(days===365)return "1年";
+  return days+"日";
+}
+
+function daysUntil(ms){
+  var diff=ms-Date.now();
+  return Math.ceil(diff/(24*60*60*1000));
+}
+
+function formatDueStatus(r){
+  var days=daysUntil(r.nextDueMs);
+  if(days<0)return {text:Math.abs(days)+"日超過",color:"#FF6B6B",bg:"#FFE5E5",overdue:true};
+  if(days===0)return {text:"今日まで",color:"#E67E22",bg:"#FFF4E5",overdue:false,today:true};
+  if(days<=3)return {text:"あと"+days+"日",color:"#E67E22",bg:"#FFF4E5",overdue:false};
+  return {text:"あと"+days+"日",color:"#999",bg:"#f5f5f5",overdue:false};
 }
 
 var toastTimer=null;
@@ -387,13 +472,75 @@ function mainHTML(){
     settings_html+='<div class="section"><div class="section-label">データ</div><button id="clear-logs" style="width:100%;background:#fff0f0;color:#FF6B6B;border:1.5px solid #FF6B6B;border-radius:10px;padding:10px;font-weight:600;font-size:14px;cursor:pointer;">記録をすべて削除</button></div>';
   }
 
+  var recurring_html='';
+  if(state.screen==="recurring"){
+    // メンバー選択（共通）
+    recurring_html+='<div class="section"><div class="section-label">だれがやる？</div><div style="display:flex;gap:10px;flex-wrap:wrap;">';
+    state.members.forEach(function(m,i){
+      var c=memberColor(i),a=state.selectedMember===m.id;
+      recurring_html+='<button class="member-btn" data-id="'+m.id+'" style="padding:10px 20px;border-radius:100px;font-weight:600;font-size:15px;cursor:pointer;border:2px solid '+(a?c.bg:c.bg+'30')+';background:'+(a?c.bg:c.light)+';color:'+(a?'#fff':c.text)+';transform:'+(a?'scale(1.06)':'scale(1)')+';transition:all 0.15s;">'+m.name+'</button>';
+    });
+    recurring_html+='</div></div>';
+
+    // 期日順にソート（超過したもの・近いものを上に）
+    var sortedRec=state.recurring.slice().sort(function(a,b){return (a.nextDueMs||0)-(b.nextDueMs||0);});
+    var overdue=sortedRec.filter(function(r){return daysUntil(r.nextDueMs)<0;});
+    var upcoming=sortedRec.filter(function(r){return daysUntil(r.nextDueMs)>=0;});
+
+    if(overdue.length>0){
+      recurring_html+='<div class="section"><div class="section-label" style="color:#FF6B6B;">⚠️ 期日超過</div>';
+      overdue.forEach(function(r){
+        var s=formatDueStatus(r);
+        recurring_html+='<div style="display:flex;align-items:center;gap:10px;padding:12px;background:'+s.bg+';border-radius:12px;margin-bottom:8px;border-left:4px solid '+s.color+';"><span style="font-size:28px;">'+r.icon+'</span><div style="flex:1;"><div style="font-size:14px;font-weight:600;">'+r.name+'</div><div style="font-size:11px;color:'+s.color+';font-weight:600;margin-top:2px;">'+s.text+' · '+formatInterval(r.intervalDays)+'ごと · +'+r.points+'pt</div></div><button class="rec-complete" data-rec=\''+JSON.stringify(r).replace(/'/g,"&#39;")+'\' style="background:'+s.color+';color:#fff;border:none;border-radius:8px;padding:8px 14px;font-weight:700;font-size:13px;cursor:pointer;">完了</button></div>';
+      });
+      recurring_html+='</div>';
+    }
+
+    if(upcoming.length>0){
+      recurring_html+='<div class="section"><div class="section-label">予定</div>';
+      upcoming.forEach(function(r){
+        var s=formatDueStatus(r);
+        recurring_html+='<div style="display:flex;align-items:center;gap:10px;padding:12px;background:#fafafa;border-radius:12px;margin-bottom:8px;"><span style="font-size:24px;">'+r.icon+'</span><div style="flex:1;"><div style="font-size:14px;font-weight:600;">'+r.name+'</div><div style="font-size:11px;color:'+s.color+';margin-top:2px;">'+s.text+' · '+formatInterval(r.intervalDays)+'ごと · +'+r.points+'pt</div></div><button class="rec-complete" data-rec=\''+JSON.stringify(r).replace(/'/g,"&#39;")+'\' style="background:#f0f0f0;color:#555;border:none;border-radius:8px;padding:8px 14px;font-weight:600;font-size:13px;cursor:pointer;">完了</button></div>';
+      });
+      recurring_html+='</div>';
+    }
+
+    if(state.recurring.length===0){
+      recurring_html+='<div class="section"><div style="text-align:center;color:#ccc;padding:20px;font-size:13px;">まだ定期タスクがありません<br>下から追加してください</div></div>';
+    }
+
+    // 追加フォーム
+    recurring_html+='<div class="section"><div class="section-label">定期タスクを追加</div>';
+    recurring_html+='<div style="display:flex;gap:8px;margin-bottom:8px;"><input id="new-rec-icon" class="input" style="margin:0;flex:0 0 44px;text-align:center;" value="'+state.newRecurringIcon+'" maxlength="2" /><input id="new-rec-name" class="input" style="margin:0;flex:1;" placeholder="タスク名（例：エアコン掃除）" value="'+state.newRecurringName+'" /></div>';
+    recurring_html+='<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;"><span style="font-size:12px;color:#999;width:60px;">頻度</span><select id="new-rec-interval" class="input" style="margin:0;flex:1;">';
+    [[1,"毎日"],[7,"1週間ごと"],[14,"2週間ごと"],[30,"1ヶ月ごと"],[90,"3ヶ月ごと"],[180,"半年ごと"],[365,"1年ごと"]].forEach(function(opt){
+      recurring_html+='<option value="'+opt[0]+'"'+(state.newRecurringInterval===opt[0]?" selected":"")+'>'+opt[1]+'</option>';
+    });
+    recurring_html+='</select></div>';
+    recurring_html+='<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;"><span style="font-size:12px;color:#999;width:60px;">ポイント</span><input id="new-rec-pts" type="number" min="1" max="20" class="input" style="margin:0;flex:1;" value="'+state.newRecurringPoints+'" /></div>';
+    recurring_html+='<button id="add-rec" style="width:100%;background:#FF6B6B;color:#fff;border:none;border-radius:10px;padding:10px;font-weight:700;font-size:14px;cursor:pointer;">追加</button>';
+
+    // 既存の定期タスク一覧（削除可能）
+    if(state.recurring.length>0){
+      recurring_html+='<div style="margin-top:16px;border-top:1px solid #f0f0f0;padding-top:12px;"><div style="font-size:11px;color:#999;margin-bottom:8px;">管理</div>';
+      state.recurring.forEach(function(r){
+        recurring_html+='<div style="display:flex;align-items:center;gap:10px;padding:6px 0;"><span>'+r.icon+'</span><span style="flex:1;font-size:13px;">'+r.name+'</span><span style="font-size:11px;color:#999;">'+formatInterval(r.intervalDays)+'</span><button class="del-rec" data-id="'+r.id+'" style="font-size:12px;color:#FF6B6B;background:none;border:none;cursor:pointer;">削除</button></div>';
+      });
+      recurring_html+='</div>';
+    }
+    recurring_html+='</div>';
+  }
+
   var nav='<div style="position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;background:#fff;border-top:1px solid #eee;display:flex;z-index:10;">';
-  [["home","記録","✏️"],["stats","グラフ","📊"],["settings","設定","⚙️"]].forEach(function(t){
-    nav+='<button class="nav-btn" data-screen="'+t[0]+'" style="flex:1;background:none;border:none;padding:10px 0 14px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px;color:'+(state.screen===t[0]?"#FF6B6B":"#999")+'"><span style="font-size:22px;">'+t[2]+'</span><span style="font-size:10px;font-weight:600;">'+t[1]+'</span></button>';
+  // 期日超過の件数を表示
+  var overdueCount=state.recurring.filter(function(r){return daysUntil(r.nextDueMs)<0;}).length;
+  [["home","記録","✏️"],["recurring","定期","📅",overdueCount],["stats","グラフ","📊"],["settings","設定","⚙️"]].forEach(function(t){
+    var badge=(t[3]&&t[3]>0)?'<span style="position:absolute;top:6px;right:50%;margin-right:-22px;background:#FF6B6B;color:#fff;font-size:9px;font-weight:700;border-radius:100px;padding:2px 5px;min-width:16px;text-align:center;">'+t[3]+'</span>':'';
+    nav+='<button class="nav-btn" data-screen="'+t[0]+'" style="flex:1;background:none;border:none;padding:10px 0 14px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px;color:'+(state.screen===t[0]?"#FF6B6B":"#999")+';position:relative;"><span style="font-size:22px;">'+t[2]+'</span><span style="font-size:10px;font-weight:600;">'+t[1]+'</span>'+badge+'</button>';
   });
   nav+='</div>';
 
-  return '<div style="background:#fff;padding:14px 20px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #eee;position:sticky;top:0;z-index:10;"><span style="font-weight:700;font-size:17px;">🏠 家事ログ</span><div style="display:flex;align-items:center;gap:8px;"><span id="show-code" style="font-size:11px;color:#bbb;background:#f5f5f5;padding:3px 8px;border-radius:100px;cursor:pointer;">🔑 '+groupId+'</span><span style="font-size:12px;color:#999;">'+getWeekRange()+'</span></div></div><div style="flex:1;overflow-y:auto;padding-bottom:80px;">'+home+stats_html+settings_html+'</div>'+nav;
+  return '<div style="background:#fff;padding:14px 20px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #eee;position:sticky;top:0;z-index:10;"><span style="font-weight:700;font-size:17px;">🏠 家事ログ</span><div style="display:flex;align-items:center;gap:8px;"><span id="show-code" style="font-size:11px;color:#bbb;background:#f5f5f5;padding:3px 8px;border-radius:100px;cursor:pointer;">🔑 '+groupId+'</span><span style="font-size:12px;color:#999;">'+getWeekRange()+'</span></div></div><div style="flex:1;overflow-y:auto;padding-bottom:80px;">'+home+recurring_html+stats_html+settings_html+'</div>'+nav;
 }
 
 function bindMain(){
@@ -432,6 +579,24 @@ function bindMain(){
   if(at)at.onclick=addTask;
   var cl=document.getElementById("clear-logs");
   if(cl)cl.onclick=clearLogs;
+
+  // 定期タスク
+  document.querySelectorAll(".rec-complete").forEach(function(btn){
+    btn.onclick=function(){completeRecurring(JSON.parse(btn.dataset.rec));};
+  });
+  document.querySelectorAll(".del-rec").forEach(function(btn){
+    btn.onclick=function(){if(confirm("削除しますか？"))deleteRecurring(btn.dataset.id);};
+  });
+  var nri=document.getElementById("new-rec-icon");
+  if(nri)nri.oninput=function(e){state.newRecurringIcon=e.target.value;};
+  var nrn=document.getElementById("new-rec-name");
+  if(nrn)nrn.oninput=function(e){state.newRecurringName=e.target.value;};
+  var nrv=document.getElementById("new-rec-interval");
+  if(nrv)nrv.onchange=function(e){state.newRecurringInterval=Number(e.target.value);};
+  var nrp=document.getElementById("new-rec-pts");
+  if(nrp)nrp.oninput=function(e){state.newRecurringPoints=Number(e.target.value);};
+  var ar=document.getElementById("add-rec");
+  if(ar)ar.onclick=addRecurring;
 }
 </script>
 
