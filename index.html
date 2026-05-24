@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
@@ -6,183 +7,305 @@
   <title>家事ログ</title>
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-app.js";
-    import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-firestore.js";
+    import { getFirestore, collection, doc, setDoc, getDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-firestore.js";
 
-    const firebaseConfig = {
-      apiKey: "AIzaSyDU9BcaCWGqapWezTqwYzYsywpCjfstSiE",
-      authDomain: "housework-80f77.firebaseapp.com",
-      projectId: "housework-80f77",
-      storageBucket: "housework-80f77.firebasestorage.app",
-      messagingSenderId: "26580994101",
-      appId: "1:26580994101:web:2bc4d94f0ba84d11c2097c"
-    };
+```
+const firebaseConfig = {
+  apiKey: "AIzaSyDU9BcaCWGqapWezTqwYzYsywpCjfstSiE",
+  authDomain: "housework-80f77.firebaseapp.com",
+  projectId: "housework-80f77",
+  storageBucket: "housework-80f77.firebasestorage.app",
+  messagingSenderId: "26580994101",
+  appId: "1:26580994101:web:2bc4d94f0ba84d11c2097c"
+};
 
-    let db;
-    try {
-      const app = initializeApp(firebaseConfig);
-      db = getFirestore(app);
-    } catch(e) { console.error(e); }
+let db;
+try { const app = initializeApp(firebaseConfig); db = getFirestore(app); } catch(e) { console.error(e); }
 
-    function saveCache(key, data) { try { localStorage.setItem("chores_"+key, JSON.stringify(data)); } catch(e) {} }
-    function loadCache(key) { try { const d = localStorage.getItem("chores_"+key); return d ? JSON.parse(d) : null; } catch(e) { return null; } }
+function saveCache(key, data) { try { localStorage.setItem("chores_"+key, JSON.stringify(data)); } catch(e) {} }
+function loadCache(key) { try { const d = localStorage.getItem("chores_"+key); return d ? JSON.parse(d) : null; } catch(e) { return null; } }
 
-    const DEFAULT_TASKS = [
-      { id: "t1", name: "料理", icon: "🍳", points: 3 },
-      { id: "t2", name: "食器洗い", icon: "🍽️", points: 2 },
-      { id: "t3", name: "洗濯", icon: "👕", points: 2 },
-      { id: "t4", name: "掃除機", icon: "🧹", points: 2 },
-      { id: "t5", name: "風呂掃除", icon: "🛁", points: 2 },
-      { id: "t6", name: "買い物", icon: "🛒", points: 2 },
-      { id: "t7", name: "ゴミ出し", icon: "🗑️", points: 1 },
-      { id: "t8", name: "トイレ掃除", icon: "🚽", points: 1 },
-    ];
-    const MEMBER_COLORS = [
-      { bg: "#FF6B6B", light: "#FFE5E5", text: "#c0392b" },
-      { bg: "#4ECDC4", light: "#E0F7F5", text: "#1a8c87" },
-      { bg: "#FFD93D", light: "#FFF9E0", text: "#b7860b" },
-      { bg: "#A78BFA", light: "#EDE9FE", text: "#6d28d9" },
-    ];
-    function memberColor(idx) { return MEMBER_COLORS[idx % MEMBER_COLORS.length]; }
-    function formatDatetime(ts) {
-      if (!ts) return "";
-      const d = ts.toDate ? ts.toDate() : new Date(ts);
-      return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
-    }
-    function getWeekRange() {
-      const now = new Date(), day = now.getDay();
-      const mon = new Date(now); mon.setDate(now.getDate() - day + (day===0?-6:1));
-      const sun = new Date(mon); sun.setDate(mon.getDate()+6);
-      const fmt = d => `${d.getMonth()+1}/${d.getDate()}`;
-      return `${fmt(mon)} 〜 ${fmt(sun)}`;
-    }
-    function getTodayKey() { const d=new Date(); return `${d.getFullYear()}-${d.getMonth()+1}-${d.getDate()}`; }
-    function getWeekKeys() {
-      const now=new Date(), day=now.getDay();
-      const mon=new Date(now); mon.setDate(now.getDate()-day+(day===0?-6:1));
-      return Array.from({length:7},(_,i)=>{ const d=new Date(mon); d.setDate(mon.getDate()+i); return `${d.getFullYear()}-${d.getMonth()+1}-${d.getDate()}`; });
-    }
+function generateCode() {
+  return Math.random().toString(36).substring(2, 8).toUpperCase();
+}
 
-    let state = {
-      screen: "home",
-      members: loadCache("members") || [],
-      tasks: loadCache("tasks") || [...DEFAULT_TASKS],
-      logs: loadCache("logs") || [],
-      selectedMember: null,
-      statsRange: "week",
-      newMemberName: "",
-      newTaskName: "",
-      newTaskIcon: "✨",
-      newTaskPoints: 2,
-      synced: false,
-    };
+const DEFAULT_TASKS = [
+  { id: "t1", name: "料理", icon: "🍳", points: 3 },
+  { id: "t2", name: "食器洗い", icon: "🍽️", points: 2 },
+  { id: "t3", name: "洗濯", icon: "👕", points: 2 },
+  { id: "t4", name: "掃除機", icon: "🧹", points: 2 },
+  { id: "t5", name: "風呂掃除", icon: "🛁", points: 2 },
+  { id: "t6", name: "買い物", icon: "🛒", points: 2 },
+  { id: "t7", name: "ゴミ出し", icon: "🗑️", points: 1 },
+  { id: "t8", name: "トイレ掃除", icon: "🚽", points: 1 },
+];
+const MEMBER_COLORS = [
+  { bg: "#FF6B6B", light: "#FFE5E5", text: "#c0392b" },
+  { bg: "#4ECDC4", light: "#E0F7F5", text: "#1a8c87" },
+  { bg: "#FFD93D", light: "#FFF9E0", text: "#b7860b" },
+  { bg: "#A78BFA", light: "#EDE9FE", text: "#6d28d9" },
+];
+function memberColor(idx) { return MEMBER_COLORS[idx % MEMBER_COLORS.length]; }
+function formatDatetime(ts) {
+  if (!ts) return "";
+  const d = ts.toDate ? ts.toDate() : new Date(ts);
+  return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+}
+function getWeekRange() {
+  const now = new Date(), day = now.getDay();
+  const mon = new Date(now); mon.setDate(now.getDate() - day + (day===0?-6:1));
+  const sun = new Date(mon); sun.setDate(mon.getDate()+6);
+  const fmt = d => `${d.getMonth()+1}/${d.getDate()}`;
+  return `${fmt(mon)} 〜 ${fmt(sun)}`;
+}
+function getTodayKey() { const d=new Date(); return `${d.getFullYear()}-${d.getMonth()+1}-${d.getDate()}`; }
+function getWeekKeys() {
+  const now=new Date(), day=now.getDay();
+  const mon=new Date(now); mon.setDate(now.getDate()-day+(day===0?-6:1));
+  return Array.from({length:7},(_,i)=>{ const d=new Date(mon); d.setDate(mon.getDate()+i); return `${d.getFullYear()}-${d.getMonth()+1}-${d.getDate()}`; });
+}
 
-    // キャッシュがあれば即synced扱い
-    if (state.members.length > 0) state.synced = true;
+// グループID管理
+let groupId = loadCache("groupId");
 
-    if (db) {
-      try {
-        onSnapshot(collection(db,"members"), snap => {
-          state.members = snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.order||0)-(b.order||0));
-          saveCache("members", state.members);
-          state.synced = true;
-          render();
-        }, err => { console.error(err); state.synced=true; render(); });
-        onSnapshot(collection(db,"tasks"), snap => {
-          const l = snap.docs.map(d=>({id:d.id,...d.data()}));
-          state.tasks = l.length > 0 ? l : [...DEFAULT_TASKS];
-          saveCache("tasks", state.tasks);
-          render();
-        }, err => console.error(err));
-        onSnapshot(query(collection(db,"logs"),orderBy("ts","desc")), snap => {
-          state.logs = snap.docs.map(d=>({id:d.id,...d.data()}));
-          saveCache("logs", state.logs);
-          state.synced = true;
-          render();
-        }, err => console.error(err));
-      } catch(e) { console.error(e); state.synced=true; }
-    } else {
+let state = {
+  screen: "home",
+  groupScreen: groupId ? "app" : "welcome", // welcome | create | join | app
+  members: loadCache("members") || [],
+  tasks: loadCache("tasks") || [...DEFAULT_TASKS],
+  logs: loadCache("logs") || [],
+  selectedMember: null,
+  statsRange: "week",
+  newMemberName: "",
+  newTaskName: "",
+  newTaskIcon: "✨",
+  newTaskPoints: 2,
+  synced: false,
+  joinCode: "",
+  groupName: "",
+  errorMsg: "",
+};
+
+if (state.members.length > 0) state.synced = true;
+
+let unsubscribers = [];
+
+function subscribeGroup(gid) {
+  unsubscribers.forEach(u => u());
+  unsubscribers = [];
+  if (!db) { state.synced = true; render(); return; }
+  try {
+    unsubscribers.push(onSnapshot(collection(db, "groups", gid, "members"), snap => {
+      state.members = snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.order||0)-(b.order||0));
+      saveCache("members", state.members);
       state.synced = true;
-    }
+      render();
+    }, e => { console.error(e); state.synced=true; render(); }));
+    unsubscribers.push(onSnapshot(collection(db, "groups", gid, "tasks"), snap => {
+      const l = snap.docs.map(d=>({id:d.id,...d.data()}));
+      state.tasks = l.length > 0 ? l : [...DEFAULT_TASKS];
+      saveCache("tasks", state.tasks);
+      render();
+    }, e => console.error(e)));
+    unsubscribers.push(onSnapshot(query(collection(db, "groups", gid, "logs"), orderBy("ts","desc")), snap => {
+      state.logs = snap.docs.map(d=>({id:d.id,...d.data()}));
+      saveCache("logs", state.logs);
+      state.synced = true;
+      render();
+    }, e => console.error(e)));
+  } catch(e) { console.error(e); state.synced=true; render(); }
+}
 
-    // 5秒経過してもsync完了しなければキャッシュで強制表示
-    setTimeout(() => { if (!state.synced) { state.synced = true; render(); } }, 5000);
+if (groupId) subscribeGroup(groupId);
+setTimeout(() => { if (!state.synced) { state.synced = true; render(); } }, 5000);
 
-    async function logTask(task) {
-      if(!state.selectedMember){showToast("メンバーを選んでね！");return;}
-      try {
-        await setDoc(doc(db,"logs",Date.now().toString()),{memberId:state.selectedMember,taskId:task.id,taskName:task.name,taskIcon:task.icon,points:task.points,date:getTodayKey(),ts:serverTimestamp()});
-        showToast(`${task.icon} ${task.name} を記録したよ！`);
-      } catch(e) { console.error(e); showToast("記録に失敗しました"); }
-    }
-    async function undoLast() { if(!state.logs.length)return; try { await deleteDoc(doc(db,"logs",state.logs[0].id)); showToast("取り消したよ"); } catch(e) {} }
-    async function addMember() { const n=state.newMemberName.trim(); if(!n)return; try { await setDoc(doc(db,"members",Date.now().toString()),{name:n,order:state.members.length}); state.newMemberName=""; showToast("追加しました"); } catch(e) { showToast("追加に失敗しました"); } }
-    async function deleteMember(id) { if(state.members.length<=1){showToast("最低1人必要");return;} try { await deleteDoc(doc(db,"members",id)); if(state.selectedMember===id)state.selectedMember=null; } catch(e) {} }
-    async function addTask() { const n=state.newTaskName.trim(); if(!n)return; try { await setDoc(doc(db,"tasks",Date.now().toString()),{name:n,icon:state.newTaskIcon||"✨",points:state.newTaskPoints}); state.newTaskName="";state.newTaskIcon="✨";state.newTaskPoints=2; showToast("追加しました"); } catch(e) {} }
-    async function deleteTask(id) { try { await deleteDoc(doc(db,"tasks",id)); } catch(e) {} }
-    async function clearLogs() { if(!confirm("全記録を削除しますか？"))return; for(const l of state.logs){ try { await deleteDoc(doc(db,"logs",l.id)); } catch(e){} } showToast("削除しました"); }
-
-    let toastTimer=null;
-    function showToast(msg) { const el=document.getElementById("toast"); el.textContent=msg; el.style.opacity="1"; if(toastTimer)clearTimeout(toastTimer); toastTimer=setTimeout(()=>{el.style.opacity="0";},2000); }
-
-    function getFilteredLogs() {
-      if(state.statsRange==="week"){const k=getWeekKeys();return state.logs.filter(l=>k.includes(l.date));}
-      if(state.statsRange==="month"){const now=new Date();const p=`${now.getFullYear()}-${now.getMonth()+1}`;return state.logs.filter(l=>l.date&&l.date.startsWith(p));}
-      return state.logs;
-    }
-    function getStats() { const f=getFilteredLogs(); return state.members.map(m=>({...m,total:f.filter(l=>l.memberId===m.id).reduce((s,l)=>s+(l.points||0),0),count:f.filter(l=>l.memberId===m.id).length})); }
-
-    function render() {
-      const root=document.getElementById("app");
-      if(!state.synced && state.members.length===0){root.innerHTML=`<div style="display:flex;align-items:center;justify-content:center;height:80vh;color:#999;">読み込み中…</div>`;return;}
-      if(state.members.length===0){root.innerHTML=setupHTML();bindSetup();return;}
-      root.innerHTML=mainHTML();bindMain();
-    }
-
-    function setupHTML(){return`<div style="margin:60px 24px;background:#fff;border-radius:24px;padding:32px;box-shadow:0 4px 20px #0000000f;text-align:center;"><div style="font-size:56px;margin-bottom:16px;">🏠</div><h1 style="font-size:20px;font-weight:700;margin-bottom:8px;">家事分担アプリへようこそ</h1><p style="font-size:14px;color:#999;margin-bottom:24px;">最初にメンバーを登録しましょう</p><div style="display:flex;gap:8px;"><input id="setup-name" style="flex:1;border:1.5px solid #e0e0e0;border-radius:10px;padding:10px 12px;font-size:14px;outline:none;" placeholder="名前を入力（例：たろう）" value="${state.newMemberName}" /><button id="setup-add" style="background:#FF6B6B;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:14px;cursor:pointer;">追加</button></div></div>`;}
-    function bindSetup(){document.getElementById("setup-name").addEventListener("input",e=>state.newMemberName=e.target.value);document.getElementById("setup-name").addEventListener("keydown",e=>{if(e.key==="Enter")addMember();});document.getElementById("setup-add").addEventListener("click",addMember);}
-
-    function mainHTML(){
-      const stats=getStats(),totalPts=stats.reduce((s,m)=>s+m.total,0);
-      return`
-      <div style="background:#fff;padding:14px 20px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #eee;position:sticky;top:0;z-index:10;"><span style="font-weight:700;font-size:17px;">🏠 家事ログ</span><span style="font-size:12px;color:#999;">${getWeekRange()}</span></div>
-      <div style="flex:1;overflow-y:auto;padding-bottom:80px;">
-      ${state.screen==="home"?`
-      <div class="section"><div class="section-label">だれがやる？</div><div style="display:flex;gap:10px;flex-wrap:wrap;">${state.members.map((m,i)=>{const c=memberColor(i),a=state.selectedMember===m.id;return`<button class="member-btn" data-id="${m.id}" style="padding:10px 20px;border-radius:100px;font-weight:600;font-size:15px;cursor:pointer;border:2px solid ${a?c.bg:c.bg+'30'};background:${a?c.bg:c.light};color:${a?'#fff':c.text};transform:${a?'scale(1.06)':'scale(1)'};transition:all 0.15s;">${m.name}</button>`;}).join("")}</div></div>
-      <div class="section"><div class="section-label">何をした？</div><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;">${state.tasks.map(t=>`<button class="task-btn" data-task='${JSON.stringify(t).replace(/'/g,"&#39;")}' style="background:#f7f7f5;border:none;border-radius:14px;padding:14px 8px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;"><span style="font-size:28px;">${t.icon}</span><span style="font-size:12px;font-weight:600;color:#333;">${t.name}</span><span style="font-size:11px;color:#FF6B6B;font-weight:700;">+${t.points}pt</span></button>`).join("")}</div></div>
-      ${state.logs.length>0?`<div class="section"><div style="display:flex;justify-content:space-between;align-items:center;"><div class="section-label">最近の記録</div><button id="undo-btn" style="font-size:12px;color:#999;background:none;border:none;cursor:pointer;">↩ 取り消し</button></div>${state.logs.slice(0,5).map(l=>{const mIdx=state.members.findIndex(m=>m.id===l.memberId),c=memberColor(mIdx),mName=state.members.find(m=>m.id===l.memberId)?.name||"?";return`<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:#fafafa;border-radius:10px;margin-bottom:8px;border-left:3px solid ${c.bg};"><span style="font-size:20px;">${l.taskIcon}</span><div style="flex:1;"><div style="font-size:14px;font-weight:500;">${l.taskName}</div><div style="font-size:11px;color:#bbb;">${formatDatetime(l.ts)}</div></div><span style="font-size:12px;font-weight:600;color:${c.text};">${mName}</span><span style="font-size:12px;color:#FF6B6B;font-weight:700;">+${l.points}pt</span></div>`;}).join("")}</div>`:""}
-      `:""}
-      ${state.screen==="stats"?`
-      <div class="section"><div style="display:flex;gap:8px;">${["week","month","all"].map(r=>`<button class="range-btn" data-range="${r}" style="flex:1;border:none;border-radius:10px;padding:8px 0;font-weight:600;font-size:13px;cursor:pointer;background:${state.statsRange===r?"#2d2d2d":"#f0f0f0"};color:${state.statsRange===r?"#fff":"#555"};">${r==="week"?"今週":r==="month"?"今月":"全期間"}</button>`).join("")}</div></div>
-      <div class="section"><div class="section-label">貢献スコア</div>${totalPts===0?`<div style="text-align:center;color:#ccc;padding:20px;">まだ記録がありません</div>`:stats.map((m,i)=>{const c=memberColor(i),pct=Math.round(m.total/totalPts*100);return`<div style="margin-bottom:16px;"><div style="font-size:14px;font-weight:600;margin-bottom:6px;">${m.name}</div><div style="background:#f0f0f0;border-radius:100px;height:12px;overflow:hidden;margin-bottom:4px;"><div style="height:100%;border-radius:100px;width:${pct}%;background:${c.bg};transition:width 0.4s;"></div></div><div style="display:flex;justify-content:space-between;"><span style="color:${c.text};font-weight:700;">${m.total}pt</span><span style="font-size:12px;color:#999;">${pct}%</span></div></div>`;}).join("")}</div>
-      ${getFilteredLogs().length>0?`<div class="section"><div class="section-label">タスク別内訳</div>${state.members.map((m,i)=>{const c=memberColor(i),mLogs=getFilteredLogs().filter(l=>l.memberId===m.id);if(!mLogs.length)return"";const tc={};mLogs.forEach(l=>{tc[l.taskName]=(tc[l.taskName]||0)+1;});return`<div style="margin-bottom:16px;"><div style="padding:6px 12px;border-radius:8px;font-weight:700;font-size:13px;margin-bottom:8px;background:${c.light};color:${c.text};">${m.name}</div><div style="display:flex;flex-wrap:wrap;gap:6px;">${Object.entries(tc).map(([n,cnt])=>`<div style="background:#f7f7f5;border-radius:8px;padding:4px 10px;font-size:12px;display:flex;gap:6px;"><span>${n}</span><span style="color:${c.text};font-weight:600;">${cnt}回</span></div>`).join("")}</div></div>`;}).join("")}</div>`:""}
-      `:""}
-      ${state.screen==="settings"?`
-      <div class="section"><div class="section-label">メンバー管理</div>${state.members.map((m,i)=>{const c=memberColor(i);return`<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f0f0f0;"><span style="width:12px;height:12px;border-radius:100px;background:${c.bg};display:inline-block;"></span><span style="flex:1;font-size:14px;">${m.name}</span><button class="del-member" data-id="${m.id}" style="font-size:12px;color:#FF6B6B;background:none;border:none;cursor:pointer;">削除</button></div>`;}).join("")}<div style="display:flex;gap:8px;margin-top:8px;"><input id="new-member" style="flex:1;border:1.5px solid #e0e0e0;border-radius:10px;padding:10px 12px;font-size:14px;outline:none;" placeholder="新しいメンバーの名前" value="${state.newMemberName}" /><button id="add-member" style="background:#FF6B6B;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:14px;cursor:pointer;">追加</button></div></div>
-      <div class="section"><div class="section-label">タスク管理</div>${state.tasks.map(t=>`<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f0f0f0;"><span>${t.icon}</span><span style="flex:1;font-size:14px;">${t.name}</span><span style="font-size:12px;color:#999;">${t.points}pt</span><button class="del-task" data-id="${t.id}" style="font-size:12px;color:#FF6B6B;background:none;border:none;cursor:pointer;">削除</button></div>`).join("")}<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;"><input id="new-task-icon" style="flex:0 0 44px;border:1.5px solid #e0e0e0;border-radius:10px;padding:10px 8px;font-size:14px;outline:none;text-align:center;" value="${state.newTaskIcon}" maxlength="2" /><input id="new-task-name" style="flex:1;border:1.5px solid #e0e0e0;border-radius:10px;padding:10px 12px;font-size:14px;outline:none;" placeholder="タスク名" value="${state.newTaskName}" /><input id="new-task-pts" type="number" min="1" max="10" style="flex:0 0 50px;border:1.5px solid #e0e0e0;border-radius:10px;padding:10px 8px;font-size:14px;outline:none;text-align:center;" value="${state.newTaskPoints}" /><button id="add-task" style="background:#FF6B6B;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:14px;cursor:pointer;">追加</button></div></div>
-      <div class="section"><div class="section-label">データ</div><button id="clear-logs" style="width:100%;background:#fff0f0;color:#FF6B6B;border:1.5px solid #FF6B6B;border-radius:10px;padding:10px;font-weight:600;font-size:14px;cursor:pointer;">記録をすべて削除</button></div>
-      `:""}
-      </div>
-      <div style="position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;background:#fff;border-top:1px solid #eee;display:flex;z-index:10;">${[["home","記録","✏️"],["stats","グラフ","📊"],["settings","設定","⚙️"]].map(([id,label,icon])=>`<button class="nav-btn" data-screen="${id}" style="flex:1;background:none;border:none;padding:10px 0 14px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px;color:${state.screen===id?"#FF6B6B":"#999"};"><span style="font-size:22px;">${icon}</span><span style="font-size:10px;font-weight:600;">${label}</span></button>`).join("")}</div>`;
-    }
-
-    function bindMain(){
-      document.querySelectorAll(".member-btn").forEach(btn=>btn.addEventListener("click",()=>{const id=btn.dataset.id;state.selectedMember=state.selectedMember===id?null:id;render();}));
-      document.querySelectorAll(".task-btn").forEach(btn=>btn.addEventListener("click",()=>logTask(JSON.parse(btn.dataset.task))));
-      document.getElementById("undo-btn")?.addEventListener("click",undoLast);
-      document.querySelectorAll(".range-btn").forEach(btn=>btn.addEventListener("click",()=>{state.statsRange=btn.dataset.range;render();}));
-      document.querySelectorAll(".nav-btn").forEach(btn=>btn.addEventListener("click",()=>{state.screen=btn.dataset.screen;render();}));
-      document.getElementById("new-member")?.addEventListener("input",e=>state.newMemberName=e.target.value);
-      document.getElementById("add-member")?.addEventListener("click",addMember);
-      document.querySelectorAll(".del-member").forEach(btn=>btn.addEventListener("click",()=>deleteMember(btn.dataset.id)));
-      document.getElementById("new-task-icon")?.addEventListener("input",e=>state.newTaskIcon=e.target.value);
-      document.getElementById("new-task-name")?.addEventListener("input",e=>state.newTaskName=e.target.value);
-      document.getElementById("new-task-pts")?.addEventListener("input",e=>state.newTaskPoints=Number(e.target.value));
-      document.getElementById("add-task")?.addEventListener("click",addTask);
-      document.querySelectorAll(".del-task").forEach(btn=>btn.addEventListener("click",()=>deleteTask(btn.dataset.id)));
-      document.getElementById("clear-logs")?.addEventListener("click",clearLogs);
-    }
-
+async function createGroup() {
+  const name = state.groupName.trim();
+  if (!name) { state.errorMsg = "グループ名を入力してください"; render(); return; }
+  const code = generateCode();
+  try {
+    await setDoc(doc(db, "groups", code), { name, createdAt: serverTimestamp() });
+    groupId = code;
+    saveCache("groupId", code);
+    saveCache("members", []);
+    saveCache("tasks", []);
+    saveCache("logs", []);
+    state.members = []; state.tasks = [...DEFAULT_TASKS]; state.logs = [];
+    state.groupScreen = "app";
+    state.errorMsg = "";
+    subscribeGroup(code);
+    showToast(`グループ作成完了！招待コード: ${code}`);
     render();
+  } catch(e) { state.errorMsg = "作成に失敗しました"; render(); }
+}
+
+async function joinGroup() {
+  const code = state.joinCode.trim().toUpperCase();
+  if (!code) { state.errorMsg = "招待コードを入力してください"; render(); return; }
+  try {
+    const snap = await getDoc(doc(db, "groups", code));
+    if (!snap.exists()) { state.errorMsg = "グループが見つかりません"; render(); return; }
+    groupId = code;
+    saveCache("groupId", code);
+    state.groupScreen = "app";
+    state.errorMsg = "";
+    subscribeGroup(code);
+    showToast(`「${snap.data().name}」に参加しました！`);
+    render();
+  } catch(e) { state.errorMsg = "参加に失敗しました"; render(); }
+}
+
+function leaveGroup() {
+  if (!confirm("このグループから退出しますか？")) return;
+  unsubscribers.forEach(u => u()); unsubscribers = [];
+  groupId = null;
+  localStorage.removeItem("chores_groupId");
+  localStorage.removeItem("chores_members");
+  localStorage.removeItem("chores_tasks");
+  localStorage.removeItem("chores_logs");
+  state.members = []; state.tasks = [...DEFAULT_TASKS]; state.logs = [];
+  state.groupScreen = "welcome"; state.synced = false;
+  render();
+}
+
+async function logTask(task) {
+  if(!state.selectedMember){showToast("メンバーを選んでね！");return;}
+  try {
+    await setDoc(doc(db,"groups",groupId,"logs",Date.now().toString()),{memberId:state.selectedMember,taskId:task.id,taskName:task.name,taskIcon:task.icon,points:task.points,date:getTodayKey(),ts:serverTimestamp()});
+    showToast(`${task.icon} ${task.name} を記録したよ！`);
+  } catch(e) { showToast("記録に失敗しました"); }
+}
+async function undoLast() { if(!state.logs.length)return; try { await deleteDoc(doc(db,"groups",groupId,"logs",state.logs[0].id)); showToast("取り消したよ"); } catch(e) {} }
+async function addMember() { const n=state.newMemberName.trim(); if(!n)return; try { await setDoc(doc(db,"groups",groupId,"members",Date.now().toString()),{name:n,order:state.members.length}); state.newMemberName=""; showToast("追加しました"); } catch(e) { showToast("追加に失敗しました"); } }
+async function deleteMember(id) { if(state.members.length<=1){showToast("最低1人必要");return;} try { await deleteDoc(doc(db,"groups",groupId,"members",id)); if(state.selectedMember===id)state.selectedMember=null; } catch(e) {} }
+async function addTask() { const n=state.newTaskName.trim(); if(!n)return; try { await setDoc(doc(db,"groups",groupId,"tasks",Date.now().toString()),{name:n,icon:state.newTaskIcon||"✨",points:state.newTaskPoints}); state.newTaskName="";state.newTaskIcon="✨";state.newTaskPoints=2; showToast("追加しました"); } catch(e) {} }
+async function deleteTask(id) { try { await deleteDoc(doc(db,"groups",groupId,"tasks",id)); } catch(e) {} }
+async function clearLogs() { if(!confirm("全記録を削除しますか？"))return; for(const l of state.logs){ try { await deleteDoc(doc(db,"groups",groupId,"logs",l.id)); } catch(e){} } showToast("削除しました"); }
+
+let toastTimer=null;
+function showToast(msg) { const el=document.getElementById("toast"); el.textContent=msg; el.style.opacity="1"; if(toastTimer)clearTimeout(toastTimer); toastTimer=setTimeout(()=>{el.style.opacity="0";},2500); }
+
+function getFilteredLogs() {
+  if(state.statsRange==="week"){const k=getWeekKeys();return state.logs.filter(l=>k.includes(l.date));}
+  if(state.statsRange==="month"){const now=new Date();const p=`${now.getFullYear()}-${now.getMonth()+1}`;return state.logs.filter(l=>l.date&&l.date.startsWith(p));}
+  return state.logs;
+}
+function getStats() { const f=getFilteredLogs(); return state.members.map(m=>({...m,total:f.filter(l=>l.memberId===m.id).reduce((s,l)=>s+(l.points||0),0),count:f.filter(l=>l.memberId===m.id).length})); }
+
+function render() {
+  const root=document.getElementById("app");
+  if (state.groupScreen !== "app") { root.innerHTML=groupHTML(); bindGroup(); return; }
+  if(!state.synced && state.members.length===0){root.innerHTML=`<div style="display:flex;align-items:center;justify-content:center;height:80vh;color:#999;">読み込み中…</div>`;return;}
+  if(state.members.length===0){root.innerHTML=setupHTML();bindSetup();return;}
+  root.innerHTML=mainHTML();bindMain();
+}
+
+function groupHTML() {
+  if (state.groupScreen === "welcome") return `
+    <div style="margin:60px 24px;background:#fff;border-radius:24px;padding:32px;box-shadow:0 4px 20px #0000000f;text-align:center;">
+      <div style="font-size:56px;margin-bottom:16px;">🏠</div>
+      <h1 style="font-size:20px;font-weight:700;margin-bottom:8px;">家事分担アプリ</h1>
+      <p style="font-size:14px;color:#999;margin-bottom:32px;">グループを作成するか、招待コードで参加してください</p>
+      <button id="btn-create" style="width:100%;background:#FF6B6B;color:#fff;border:none;border-radius:12px;padding:14px;font-weight:700;font-size:15px;cursor:pointer;margin-bottom:12px;">新しいグループを作成</button>
+      <button id="btn-join" style="width:100%;background:#f0f0f0;color:#333;border:none;border-radius:12px;padding:14px;font-weight:700;font-size:15px;cursor:pointer;">招待コードで参加</button>
+    </div>`;
+
+  if (state.groupScreen === "create") return `
+    <div style="margin:60px 24px;background:#fff;border-radius:24px;padding:32px;box-shadow:0 4px 20px #0000000f;">
+      <button id="btn-back" style="background:none;border:none;color:#999;font-size:14px;cursor:pointer;margin-bottom:16px;">← 戻る</button>
+      <div style="font-size:40px;text-align:center;margin-bottom:16px;">🏡</div>
+      <h2 style="font-size:18px;font-weight:700;margin-bottom:24px;text-align:center;">グループを作成</h2>
+      <p style="font-size:13px;color:#999;margin-bottom:8px;">グループ名（例：田中家）</p>
+      <input id="group-name" style="width:100%;border:1.5px solid #e0e0e0;border-radius:10px;padding:12px;font-size:14px;outline:none;margin-bottom:12px;" placeholder="グループ名を入力" value="${state.groupName}" />
+      ${state.errorMsg ? `<p style="color:#FF6B6B;font-size:13px;margin-bottom:12px;">${state.errorMsg}</p>` : ""}
+      <button id="btn-create-confirm" style="width:100%;background:#FF6B6B;color:#fff;border:none;border-radius:12px;padding:14px;font-weight:700;font-size:15px;cursor:pointer;">作成する</button>
+    </div>`;
+
+  if (state.groupScreen === "join") return `
+    <div style="margin:60px 24px;background:#fff;border-radius:24px;padding:32px;box-shadow:0 4px 20px #0000000f;">
+      <button id="btn-back" style="background:none;border:none;color:#999;font-size:14px;cursor:pointer;margin-bottom:16px;">← 戻る</button>
+      <div style="font-size:40px;text-align:center;margin-bottom:16px;">🔑</div>
+      <h2 style="font-size:18px;font-weight:700;margin-bottom:24px;text-align:center;">グループに参加</h2>
+      <p style="font-size:13px;color:#999;margin-bottom:8px;">招待コード（6桁）</p>
+      <input id="join-code" style="width:100%;border:1.5px solid #e0e0e0;border-radius:10px;padding:12px;font-size:18px;outline:none;margin-bottom:12px;text-align:center;letter-spacing:4px;text-transform:uppercase;" placeholder="XXXXXX" maxlength="6" value="${state.joinCode}" />
+      ${state.errorMsg ? `<p style="color:#FF6B6B;font-size:13px;margin-bottom:12px;">${state.errorMsg}</p>` : ""}
+      <button id="btn-join-confirm" style="width:100%;background:#4ECDC4;color:#fff;border:none;border-radius:12px;padding:14px;font-weight:700;font-size:15px;cursor:pointer;">参加する</button>
+    </div>`;
+}
+
+function bindGroup() {
+  document.getElementById("btn-create")?.addEventListener("click", () => { state.groupScreen="create"; state.errorMsg=""; render(); });
+  document.getElementById("btn-join")?.addEventListener("click", () => { state.groupScreen="join"; state.errorMsg=""; render(); });
+  document.getElementById("btn-back")?.addEventListener("click", () => { state.groupScreen="welcome"; state.errorMsg=""; render(); });
+  document.getElementById("group-name")?.addEventListener("input", e => state.groupName=e.target.value);
+  document.getElementById("btn-create-confirm")?.addEventListener("click", createGroup);
+  document.getElementById("join-code")?.addEventListener("input", e => state.joinCode=e.target.value);
+  document.getElementById("btn-join-confirm")?.addEventListener("click", joinGroup);
+}
+
+function setupHTML(){return`<div style="margin:60px 24px;background:#fff;border-radius:24px;padding:32px;box-shadow:0 4px 20px #0000000f;text-align:center;"><div style="font-size:56px;margin-bottom:16px;">👥</div><h1 style="font-size:20px;font-weight:700;margin-bottom:8px;">メンバーを登録</h1><p style="font-size:14px;color:#999;margin-bottom:24px;">グループコード: <strong>${groupId}</strong></p><div style="display:flex;gap:8px;"><input id="setup-name" style="flex:1;border:1.5px solid #e0e0e0;border-radius:10px;padding:10px 12px;font-size:14px;outline:none;" placeholder="名前を入力（例：たろう）" value="${state.newMemberName}" /><button id="setup-add" style="background:#FF6B6B;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:14px;cursor:pointer;">追加</button></div></div>`;}
+function bindSetup(){document.getElementById("setup-name").addEventListener("input",e=>state.newMemberName=e.target.value);document.getElementById("setup-name").addEventListener("keydown",e=>{if(e.key==="Enter")addMember();});document.getElementById("setup-add").addEventListener("click",addMember);}
+
+function mainHTML(){
+  const stats=getStats(),totalPts=stats.reduce((s,m)=>s+m.total,0);
+  return`
+  <div style="background:#fff;padding:14px 20px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #eee;position:sticky;top:0;z-index:10;">
+    <span style="font-weight:700;font-size:17px;">🏠 家事ログ</span>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <span style="font-size:11px;color:#bbb;background:#f5f5f5;padding:3px 8px;border-radius:100px;cursor:pointer;" id="show-code">🔑 ${groupId}</span>
+      <span style="font-size:12px;color:#999;">${getWeekRange()}</span>
+    </div>
+  </div>
+  <div style="flex:1;overflow-y:auto;padding-bottom:80px;">
+  ${state.screen==="home"?`
+  <div class="section"><div class="section-label">だれがやる？</div><div style="display:flex;gap:10px;flex-wrap:wrap;">${state.members.map((m,i)=>{const c=memberColor(i),a=state.selectedMember===m.id;return`<button class="member-btn" data-id="${m.id}" style="padding:10px 20px;border-radius:100px;font-weight:600;font-size:15px;cursor:pointer;border:2px solid ${a?c.bg:c.bg+'30'};background:${a?c.bg:c.light};color:${a?'#fff':c.text};transform:${a?'scale(1.06)':'scale(1)'};transition:all 0.15s;">${m.name}</button>`;}).join("")}</div></div>
+  <div class="section"><div class="section-label">何をした？</div><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;">${state.tasks.map(t=>`<button class="task-btn" data-task='${JSON.stringify(t).replace(/'/g,"&#39;")}' style="background:#f7f7f5;border:none;border-radius:14px;padding:14px 8px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;"><span style="font-size:28px;">${t.icon}</span><span style="font-size:12px;font-weight:600;color:#333;">${t.name}</span><span style="font-size:11px;color:#FF6B6B;font-weight:700;">+${t.points}pt</span></button>`).join("")}</div></div>
+  ${state.logs.length>0?`<div class="section"><div style="display:flex;justify-content:space-between;align-items:center;"><div class="section-label">最近の記録</div><button id="undo-btn" style="font-size:12px;color:#999;background:none;border:none;cursor:pointer;">↩ 取り消し</button></div>${state.logs.slice(0,5).map(l=>{const mIdx=state.members.findIndex(m=>m.id===l.memberId),c=memberColor(mIdx),mName=state.members.find(m=>m.id===l.memberId)?.name||"?";return`<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:#fafafa;border-radius:10px;margin-bottom:8px;border-left:3px solid ${c.bg};"><span style="font-size:20px;">${l.taskIcon}</span><div style="flex:1;"><div style="font-size:14px;font-weight:500;">${l.taskName}</div><div style="font-size:11px;color:#bbb;">${formatDatetime(l.ts)}</div></div><span style="font-size:12px;font-weight:600;color:${c.text};">${mName}</span><span style="font-size:12px;color:#FF6B6B;font-weight:700;">+${l.points}pt</span></div>`;}).join("")}</div>`:""}
+  `:""}
+  ${state.screen==="stats"?`
+  <div class="section"><div style="display:flex;gap:8px;">${["week","month","all"].map(r=>`<button class="range-btn" data-range="${r}" style="flex:1;border:none;border-radius:10px;padding:8px 0;font-weight:600;font-size:13px;cursor:pointer;background:${state.statsRange===r?"#2d2d2d":"#f0f0f0"};color:${state.statsRange===r?"#fff":"#555"};">${r==="week"?"今週":r==="month"?"今月":"全期間"}</button>`).join("")}</div></div>
+  <div class="section"><div class="section-label">貢献スコア</div>${totalPts===0?`<div style="text-align:center;color:#ccc;padding:20px;">まだ記録がありません</div>`:stats.map((m,i)=>{const c=memberColor(i),pct=Math.round(m.total/totalPts*100);return`<div style="margin-bottom:16px;"><div style="font-size:14px;font-weight:600;margin-bottom:6px;">${m.name}</div><div style="background:#f0f0f0;border-radius:100px;height:12px;overflow:hidden;margin-bottom:4px;"><div style="height:100%;border-radius:100px;width:${pct}%;background:${c.bg};transition:width 0.4s;"></div></div><div style="display:flex;justify-content:space-between;"><span style="color:${c.text};font-weight:700;">${m.total}pt</span><span style="font-size:12px;color:#999;">${pct}%</span></div></div>`;}).join("")}</div>
+  ${getFilteredLogs().length>0?`<div class="section"><div class="section-label">タスク別内訳</div>${state.members.map((m,i)=>{const c=memberColor(i),mLogs=getFilteredLogs().filter(l=>l.memberId===m.id);if(!mLogs.length)return"";const tc={};mLogs.forEach(l=>{tc[l.taskName]=(tc[l.taskName]||0)+1;});return`<div style="margin-bottom:16px;"><div style="padding:6px 12px;border-radius:8px;font-weight:700;font-size:13px;margin-bottom:8px;background:${c.light};color:${c.text};">${m.name}</div><div style="display:flex;flex-wrap:wrap;gap:6px;">${Object.entries(tc).map(([n,cnt])=>`<div style="background:#f7f7f5;border-radius:8px;padding:4px 10px;font-size:12px;display:flex;gap:6px;"><span>${n}</span><span style="color:${c.text};font-weight:600;">${cnt}回</span></div>`).join("")}</div></div>`;}).join("")}</div>`:""}
+  `:""}
+  ${state.screen==="settings"?`
+  <div class="section">
+    <div class="section-label">グループ情報</div>
+    <div style="background:#f7f7f5;border-radius:12px;padding:16px;margin-bottom:12px;">
+      <div style="font-size:12px;color:#999;margin-bottom:4px;">招待コード（パートナーに共有してください）</div>
+      <div style="font-size:28px;font-weight:700;letter-spacing:6px;color:#333;text-align:center;padding:8px 0;">${groupId}</div>
+    </div>
+    <button id="btn-leave" style="width:100%;background:#fff0f0;color:#FF6B6B;border:1.5px solid #FF6B6B;border-radius:10px;padding:10px;font-weight:600;font-size:14px;cursor:pointer;">グループから退出</button>
+  </div>
+  <div class="section"><div class="section-label">メンバー管理</div>${state.members.map((m,i)=>{const c=memberColor(i);return`<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f0f0f0;"><span style="width:12px;height:12px;border-radius:100px;background:${c.bg};display:inline-block;"></span><span style="flex:1;font-size:14px;">${m.name}</span><button class="del-member" data-id="${m.id}" style="font-size:12px;color:#FF6B6B;background:none;border:none;cursor:pointer;">削除</button></div>`;}).join("")}<div style="display:flex;gap:8px;margin-top:8px;"><input id="new-member" style="flex:1;border:1.5px solid #e0e0e0;border-radius:10px;padding:10px 12px;font-size:14px;outline:none;" placeholder="新しいメンバーの名前" value="${state.newMemberName}" /><button id="add-member" style="background:#FF6B6B;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:14px;cursor:pointer;">追加</button></div></div>
+  <div class="section"><div class="section-label">タスク管理</div>${state.tasks.map(t=>`<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f0f0f0;"><span>${t.icon}</span><span style="flex:1;font-size:14px;">${t.name}</span><span style="font-size:12px;color:#999;">${t.points}pt</span><button class="del-task" data-id="${t.id}" style="font-size:12px;color:#FF6B6B;background:none;border:none;cursor:pointer;">削除</button></div>`).join("")}<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;"><input id="new-task-icon" style="flex:0 0 44px;border:1.5px solid #e0e0e0;border-radius:10px;padding:10px 8px;font-size:14px;outline:none;text-align:center;" value="${state.newTaskIcon}" maxlength="2" /><input id="new-task-name" style="flex:1;border:1.5px solid #e0e0e0;border-radius:10px;padding:10px 12px;font-size:14px;outline:none;" placeholder="タスク名" value="${state.newTaskName}" /><input id="new-task-pts" type="number" min="1" max="10" style="flex:0 0 50px;border:1.5px solid #e0e0e0;border-radius:10px;padding:10px 8px;font-size:14px;outline:none;text-align:center;" value="${state.newTaskPoints}" /><button id="add-task" style="background:#FF6B6B;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:14px;cursor:pointer;">追加</button></div></div>
+  <div class="section"><div class="section-label">データ</div><button id="clear-logs" style="width:100%;background:#fff0f0;color:#FF6B6B;border:1.5px solid #FF6B6B;border-radius:10px;padding:10px;font-weight:600;font-size:14px;cursor:pointer;">記録をすべて削除</button></div>
+  `:""}
+  </div>
+  <div style="position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;background:#fff;border-top:1px solid #eee;display:flex;z-index:10;">${[["home","記録","✏️"],["stats","グラフ","📊"],["settings","設定","⚙️"]].map(([id,label,icon])=>`<button class="nav-btn" data-screen="${id}" style="flex:1;background:none;border:none;padding:10px 0 14px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px;color:${state.screen===id?"#FF6B6B":"#999"};"><span style="font-size:22px;">${icon}</span><span style="font-size:10px;font-weight:600;">${label}</span></button>`).join("")}</div>`;
+}
+
+function bindMain(){
+  document.getElementById("show-code")?.addEventListener("click", () => showToast(`招待コード: ${groupId}`));
+  document.querySelectorAll(".member-btn").forEach(btn=>btn.addEventListener("click",()=>{const id=btn.dataset.id;state.selectedMember=state.selectedMember===id?null:id;render();}));
+  document.querySelectorAll(".task-btn").forEach(btn=>btn.addEventListener("click",()=>logTask(JSON.parse(btn.dataset.task))));
+  document.getElementById("undo-btn")?.addEventListener("click",undoLast);
+  document.querySelectorAll(".range-btn").forEach(btn=>btn.addEventListener("click",()=>{state.statsRange=btn.dataset.range;render();}));
+  document.querySelectorAll(".nav-btn").forEach(btn=>btn.addEventListener("click",()=>{state.screen=btn.dataset.screen;render();}));
+  document.getElementById("btn-leave")?.addEventListener("click",leaveGroup);
+  document.getElementById("new-member")?.addEventListener("input",e=>state.newMemberName=e.target.value);
+  document.getElementById("add-member")?.addEventListener("click",addMember);
+  document.querySelectorAll(".del-member").forEach(btn=>btn.addEventListener("click",()=>deleteMember(btn.dataset.id)));
+  document.getElementById("new-task-icon")?.addEventListener("input",e=>state.newTaskIcon=e.target.value);
+  document.getElementById("new-task-name")?.addEventListener("input",e=>state.newTaskName=e.target.value);
+  document.getElementById("new-task-pts")?.addEventListener("input",e=>state.newTaskPoints=Number(e.target.value));
+  document.getElementById("add-task")?.addEventListener("click",addTask);
+  document.querySelectorAll(".del-task").forEach(btn=>btn.addEventListener("click",()=>deleteTask(btn.dataset.id)));
+  document.getElementById("clear-logs")?.addEventListener("click",clearLogs);
+}
+
+render();
+```
+
   </script>
   <style>
     *{box-sizing:border-box;margin:0;padding:0;}
@@ -199,4 +322,3 @@
   <div id="toast"></div>
 </body>
 </html>
-
