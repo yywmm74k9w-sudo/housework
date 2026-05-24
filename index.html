@@ -324,7 +324,7 @@ render();
   </style>
 </head>
 <body>
-  <div id="app"><div style="display:flex;align-items:center;justify-content:center;height:80vh;color:#999;">読み込み中…</div></div>
+  <div id="app"><script>(function(){var g=null;try{g=JSON.parse(localStorage.getItem("chores_groupId"));}catch(e){}if(!g){document.getElementById("app").innerHTML="<div style=\"margin:60px 24px;background:#fff;border-radius:24px;padding:32px;text-align:center;font-family:Hiragino Sans,sans-serif;\"><div style=\"font-size:56px;margin-bottom:16px;\">🏠<\/div><h1 style=\"font-size:20px;font-weight:700;margin-bottom:8px;\">家事分担アプリ<\/h1><p style=\"font-size:14px;color:#999;margin-bottom:32px;\">グループを作成するか招待コードで参加してください<\/p><\/div>";}})();</script></div>
   <div id="toast"></div>
 </body>
 </html>
