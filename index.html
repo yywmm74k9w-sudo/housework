@@ -116,8 +116,14 @@ function subscribeGroup(gid) {
   } catch(e) { console.error(e); state.synced=true; render(); }
 }
 
-if (groupId) subscribeGroup(groupId);
-setTimeout(() => { if (!state.synced) { state.synced = true; render(); } }, 5000);
+// 最初に即座に画面を描画してから、Firestoreの購読を開始
+if (groupId) {
+  subscribeGroup(groupId);
+} else {
+  state.synced = true;
+}
+render();
+setTimeout(() => { if (!state.synced) { state.synced = true; render(); } }, 3000);
 
 async function createGroup() {
   const name = state.groupName.trim();
